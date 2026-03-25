@@ -140,22 +140,22 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 // Paste your Supabase anon key from js/config.js
 const SUPABASE_URL='https://wylxvmkcrexwfpjpbhyy.supabase.co';
 const SUPABASE_ANON_KEY='YOUR_ANON_KEY_HERE';
-let sb=null;
-try{sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY)}catch(e){console.error('Supabase init failed:',e)}
+let supabase=null;
+try{supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY)}catch(e){console.error('Supabase init failed:',e)}
 
 let APP={folders:[]},userEmail=null,currentFolderId=null,currentListId=null,selectedTypeId=null,editingEntryId=null,saveTimeout=null;
 
 // ══════════ AUTH ══════════
 async function signIn(){
-  if(!sb){document.getElementById('loginStatus').textContent='Error: Supabase not loaded. Check your anon key.';return}
+  if(!supabase){document.getElementById('loginStatus').textContent='Error: Supabase not loaded. Check your anon key.';return}
   document.getElementById('loginStatus').textContent='Redirecting to Google...';
-  const{error}=await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:window.location.origin+window.location.pathname}});
+  const{error}=await supabase.auth.signInWithOAuth({provider:'google',options:{redirectTo:window.location.origin+window.location.pathname}});
   if(error)document.getElementById('loginStatus').textContent='Error: '+error.message;
 }
-async function signOut(){if(sb)await sb.auth.signOut();userEmail=null;APP={folders:[]};showPage('pageLogin')}
+async function signOut(){if(supabase)await supabase.auth.signOut();userEmail=null;APP={folders:[]};showPage('pageLogin')}
 async function checkAuth(){
-  if(!sb){showPage('pageLogin');document.getElementById('loginStatus').textContent='Error: Supabase not loaded. Paste your anon key in the HTML file.';return}
-  const{data:{session}}=await sb.auth.getSession();
+  if(!supabase){showPage('pageLogin');document.getElementById('loginStatus').textContent='Error: Supabase not loaded. Paste your anon key in the HTML file.';return}
+  const{data:{session}}=await supabase.auth.getSession();
   if(session?.user){userEmail=session.user.email;onLoggedIn()}else showPage('pageLogin');
 }
 function onLoggedIn(){
@@ -163,17 +163,17 @@ function onLoggedIn(){
   document.getElementById('authAvatar').textContent=userEmail.charAt(0).toUpperCase();
   showPage('pageFolders');loadFromSupabase();
 }
-if(sb){sb.auth.onAuthStateChange((ev,session)=>{
+if(supabase){supabase.auth.onAuthStateChange((ev,session)=>{
   if(ev==='SIGNED_IN'&&session?.user){userEmail=session.user.email;onLoggedIn()}
 });}
 
 // ══════════ SUPABASE DATA ══════════
 async function loadFromSupabase(){
-  if(!sb){setSyncState('err');renderFolders();return}
+  if(!supabase){setSyncState('err');renderFolders();return}
   try{
-    const{data,error}=await sb.from('data_collection_store').select('data').eq('user_email',userEmail).single();
+    const{data,error}=await supabase.from('data_collection_store').select('data').eq('user_email',userEmail).single();
     if(error&&error.code==='PGRST116'){
-      APP={folders:[]};await sb.from('data_collection_store').insert({user_email:userEmail,data:APP});
+      APP={folders:[]};await supabase.from('data_collection_store').insert({user_email:userEmail,data:APP});
     }else if(error)throw error;
     else APP=data.data||{folders:[]};
     setSyncState('ok');
@@ -189,7 +189,7 @@ async function saveToSupabase(){
   clearTimeout(saveTimeout);setSyncState('saving');
   saveTimeout=setTimeout(async()=>{
     try{
-      const{error}=await sb.from('data_collection_store').update({data:APP}).eq('user_email',userEmail);
+      const{error}=await supabase.from('data_collection_store').update({data:APP}).eq('user_email',userEmail);
       if(error)throw error;setSyncState('ok');
     }catch(e){console.error('Save failed:',e);setSyncState('err')}
   },500);
