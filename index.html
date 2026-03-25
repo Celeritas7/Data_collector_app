@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Field Logger</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0c0c0e;--bg2:#141418;--bg3:#1c1c22;--border:#2a2a33;--text:#d8d8e0;--text2:#8888a0;--accent:#f0a030;--accent2:#e08820;--danger:#e04040;--success:#30c060;--blue:#4090e0;--radius:8px}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;-webkit-tap-highlight-color:transparent}
+.sync-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
+.sync-ok{background:var(--success)}.sync-saving{background:var(--accent);animation:pulse .8s infinite}.sync-err{background:var(--danger)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.topbar{position:sticky;top:0;z-index:100;background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 14px;display:flex;align-items:center;gap:10px}
+.topbar-back{background:none;border:none;color:var(--accent);font-size:20px;cursor:pointer;padding:4px 8px;display:none}
+.topbar-title{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:15px;color:var(--accent);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topbar-sub{font-size:11px;color:var(--text2);margin-top:1px}
+.topbar-actions{display:flex;gap:6px;align-items:center}
+.auth-bar{padding:8px 14px;background:var(--bg3);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;font-size:12px}
+.auth-user{display:flex;align-items:center;gap:8px}
+.auth-avatar{width:24px;height:24px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#000}
+.btn{padding:8px 14px;border-radius:var(--radius);border:none;font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:12px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.btn-accent{background:var(--accent);color:#000}.btn-accent:active{background:var(--accent2)}
+.btn-ghost{background:var(--bg3);color:var(--text);border:1px solid var(--border)}.btn-ghost:active{background:var(--border)}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-sm{padding:5px 10px;font-size:11px}
+.btn-full{width:100%;padding:14px;font-size:14px;letter-spacing:.5px}
+.btn:disabled{opacity:.4;cursor:default}
+.icon-btn{width:36px;height:36px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.icon-btn:active{background:var(--border)}
+.btn-google{background:#fff;color:#333;border:1px solid #ddd;padding:12px 20px;border-radius:var(--radius);font-family:'DM Sans',sans-serif;font-weight:600;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;width:100%}
+.btn-google:active{background:#f0f0f0}
+.btn-google img{width:18px;height:18px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;cursor:pointer;transition:border-color .15s}
+.card:active{border-color:var(--accent)}
+.field{margin-bottom:10px}
+.field-label{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;display:block}
+.field-input{width:100%;padding:10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px}
+.field-input:focus{outline:none;border-color:var(--accent)}
+.field-row{display:grid;gap:8px}.field-row-2{grid-template-columns:1fr 1fr}.field-row-3{grid-template-columns:1fr 1fr 1fr}
+.chip-row{display:flex;gap:6px;flex-wrap:wrap;padding:6px 0}
+.chip{padding:7px 12px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;border:2px solid var(--border);background:var(--bg3);display:flex;align-items:center;gap:6px;transition:all .15s;font-family:'IBM Plex Mono',monospace}
+.chip.active{border-color:var(--accent)}
+.chip-dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex-shrink:0}
+.entry-item{background:var(--bg2);border-radius:6px;padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:flex-start;border-left:3px solid var(--border);animation:slideIn .2s ease}
+@keyframes slideIn{from{opacity:0;transform:translateY(-8px)}}
+.entry-main{flex:1;min-width:0}.entry-type{font-size:10px;font-weight:600}
+.entry-route{font-size:13px;font-weight:600;color:#ddd;margin:2px 0}
+.entry-meta{font-size:12px;color:var(--text2)}.entry-notes{font-size:10px;color:#666;font-style:italic;margin-top:2px}
+.entry-num{font-size:10px;color:#555}
+.entry-actions{display:flex;gap:4px;flex-shrink:0;margin-left:8px}
+.entry-actions button{padding:4px 6px;border-radius:4px;border:1px solid var(--border);background:var(--bg3);cursor:pointer;font-size:12px}
+.color-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;padding:6px 0}
+.color-swatch{width:100%;aspect-ratio:1;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:all .15s}
+.color-swatch.active{border-color:#fff;transform:scale(1.15)}
+.summary-bar{display:flex;gap:6px;flex-wrap:wrap;padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--border)}
+.empty{text-align:center;color:#555;padding:40px 20px;font-size:13px}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;display:flex;align-items:flex-end;justify-content:center}
+.modal-sheet{background:var(--bg2);border-radius:16px 16px 0 0;width:100%;max-width:500px;max-height:85vh;overflow-y:auto;padding:20px 16px 30px;animation:sheetUp .25s ease}
+@keyframes sheetUp{from{transform:translateY(100%)}}
+.modal-handle{width:40px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px}
+.modal-title{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:16px;margin-bottom:16px}
+.grid{padding:14px;display:flex;flex-direction:column;gap:8px}
+.folder-card .folder-name{font-weight:700;font-size:15px}.folder-card .folder-meta{font-size:11px;color:var(--text2);margin-top:4px}
+.list-card{border-left:3px solid var(--accent)}.list-card .list-name{font-weight:700;font-size:14px}.list-card .list-meta{font-size:11px;color:var(--text2);margin-top:3px}
+.type-preview{display:flex;gap:4px;margin-top:6px}.type-preview-dot{width:12px;height:12px;border-radius:50%}
+.scroll-area{flex:1;overflow-y:auto;padding-bottom:80px}
+.page{display:none;flex-direction:column;height:100vh}.page.active{display:flex}
+.login-page{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;padding:30px;text-align:center}
+.login-logo{font-size:48px;margin-bottom:16px}
+.login-title{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:24px;color:var(--accent);margin-bottom:8px}
+.login-sub{color:var(--text2);font-size:14px;margin-bottom:30px}
+.field-config-item{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+.field-config-item input{flex:1}.field-config-item select{width:90px}
+.add-type-row{display:flex;gap:6px;align-items:center;margin-top:8px}.add-type-row input{flex:1}
+</style>
+</head>
+<body>
+
+<div class="page active" id="pageLogin">
+  <div class="login-page">
+    <div class="login-logo">📋</div>
+    <div class="login-title">FIELD LOGGER</div>
+    <div class="login-sub">Data collection for assembly work.<br>Sign in to sync across devices.</div>
+    <button class="btn-google" onclick="signIn()">
+      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"> Sign in with Google
+    </button>
+    <div style="margin-top:16px;font-size:11px;color:var(--text2);" id="loginStatus"></div>
+  </div>
+</div>
+
+<div class="page" id="pageFolders">
+  <div class="topbar">
+    <div><div class="topbar-title">📋 FIELD LOGGER</div><div class="topbar-sub" id="foldersSyncStatus"></div></div>
+    <div class="topbar-actions">
+      <span id="syncIndicator"></span>
+      <button class="icon-btn" onclick="showNewFolderModal()" title="New Folder">＋</button>
+    </div>
+  </div>
+  <div class="auth-bar" id="authBar">
+    <div class="auth-user"><div class="auth-avatar" id="authAvatar">?</div><span id="authEmail" style="color:var(--text2);font-size:11px;"></span></div>
+    <button class="btn btn-sm btn-ghost" onclick="signOut()">Sign Out</button>
+  </div>
+  <div class="scroll-area"><div class="grid" id="foldersGrid"></div></div>
+</div>
+
+<div class="page" id="pageLists">
+  <div class="topbar">
+    <button class="topbar-back" onclick="goToFolders()" style="display:block">‹</button>
+    <div style="flex:1"><div class="topbar-title" id="listsTitle">Folder</div><div class="topbar-sub" id="listsSub"></div></div>
+    <div class="topbar-actions">
+      <button class="icon-btn" onclick="showNewListModal()" title="New List">＋</button>
+      <button class="icon-btn" onclick="confirmDeleteFolder()" title="Delete Folder" style="color:var(--danger)">🗑</button>
+    </div>
+  </div>
+  <div class="scroll-area"><div class="grid" id="listsGrid"></div></div>
+</div>
+
+<div class="page" id="pageEntries">
+  <div class="topbar">
+    <button class="topbar-back" onclick="goToLists()" style="display:block">‹</button>
+    <div style="flex:1"><div class="topbar-title" id="entriesTitle">List</div><div class="topbar-sub" id="entriesSub"></div></div>
+    <div class="topbar-actions">
+      <button class="btn btn-sm btn-ghost" onclick="exportListCSV()">CSV ↓</button>
+      <button class="icon-btn" onclick="showEditListModal()" title="Edit List">⚙</button>
+    </div>
+  </div>
+  <div style="padding:8px 14px;border-bottom:1px solid var(--border);background:var(--bg2);"><div class="chip-row" id="typeChips"></div></div>
+  <div style="padding:12px 14px;background:var(--bg2);border-bottom:1px solid var(--border);" id="entryForm"></div>
+  <div class="summary-bar" id="summaryBar"></div>
+  <div class="scroll-area"><div id="entriesList" style="padding:10px 14px;"></div></div>
+</div>
+
+<div id="modalContainer"></div>
+
+<script>
+// ══════════ CONFIG ══════════
+// Paste your Supabase anon key from js/config.js
+const SUPABASE_URL='https://wylxvmkcrexwfpjpbhyy.supabase.co';
+const SUPABASE_ANON_KEY='YOUR_ANON_KEY_HERE';
+const supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+
+let APP={folders:[]},userEmail=null,currentFolderId=null,currentListId=null,selectedTypeId=null,editingEntryId=null,saveTimeout=null;
+
+// ══════════ AUTH ══════════
+async function signIn(){
+  document.getElementById('loginStatus').textContent='Redirecting to Google...';
+  const{error}=await supabase.auth.signInWithOAuth({provider:'google',options:{redirectTo:window.location.origin+window.location.pathname}});
+  if(error)document.getElementById('loginStatus').textContent='Error: '+error.message;
+}
+async function signOut(){await supabase.auth.signOut();userEmail=null;APP={folders:[]};showPage('pageLogin')}
+async function checkAuth(){
+  const{data:{session}}=await supabase.auth.getSession();
+  if(session?.user){userEmail=session.user.email;onLoggedIn()}else showPage('pageLogin');
+}
+function onLoggedIn(){
+  document.getElementById('authEmail').textContent=userEmail;
+  document.getElementById('authAvatar').textContent=userEmail.charAt(0).toUpperCase();
+  showPage('pageFolders');loadFromSupabase();
+}
+supabase.auth.onAuthStateChange((ev,session)=>{
+  if(ev==='SIGNED_IN'&&session?.user){userEmail=session.user.email;onLoggedIn()}
+});
+
+// ══════════ SUPABASE DATA ══════════
+async function loadFromSupabase(){
+  try{
+    const{data,error}=await supabase.from('data_collection_store').select('data').eq('user_email',userEmail).single();
+    if(error&&error.code==='PGRST116'){
+      APP={folders:[]};await supabase.from('data_collection_store').insert({user_email:userEmail,data:APP});
+    }else if(error)throw error;
+    else APP=data.data||{folders:[]};
+    setSyncState('ok');
+  }catch(e){
+    console.error('Load failed:',e);setSyncState('err');
+    try{const l=localStorage.getItem('fl-'+userEmail);if(l)APP=JSON.parse(l)}catch{}
+  }
+  renderFolders();
+}
+async function saveToSupabase(){
+  if(!userEmail)return;
+  try{localStorage.setItem('fl-'+userEmail,JSON.stringify(APP))}catch{}
+  clearTimeout(saveTimeout);setSyncState('saving');
+  saveTimeout=setTimeout(async()=>{
+    try{
+      const{error}=await supabase.from('data_collection_store').update({data:APP}).eq('user_email',userEmail);
+      if(error)throw error;setSyncState('ok');
+    }catch(e){console.error('Save failed:',e);setSyncState('err')}
+  },500);
+}
+function setSyncState(s){
+  const el=document.getElementById('syncIndicator'),lb=document.getElementById('foldersSyncStatus');
+  if(s==='ok'){el.innerHTML='<span class="sync-dot sync-ok"></span>';lb.textContent='Synced'}
+  else if(s==='saving'){el.innerHTML='<span class="sync-dot sync-saving"></span>';lb.textContent='Saving...'}
+  else{el.innerHTML='<span class="sync-dot sync-err"></span>';lb.textContent='Offline — local backup'}
+}
+
+// ══════════ NAVIGATION ══════════
+function showPage(id){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.getElementById(id).classList.add('active')}
+function goToFolders(){currentFolderId=null;currentListId=null;showPage('pageFolders');renderFolders()}
+function goToLists(){currentListId=null;showPage('pageLists');renderLists()}
+function openFolder(fid){currentFolderId=fid;showPage('pageLists');renderLists()}
+function openList(lid){currentListId=lid;selectedTypeId=null;editingEntryId=null;showPage('pageEntries');renderEntries()}
+
+// ══════════ HELPERS ══════════
+function getFolder(fid){return APP.folders.find(f=>f.id===(fid||currentFolderId))}
+function getList(lid){const folder=getFolder();return folder?.lists?.find(l=>l.id===(lid||currentListId))}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+function esc(s){return s?s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'):''}
+
+// ══════════ RENDER FOLDERS ══════════
+function renderFolders(){
+  const g=document.getElementById('foldersGrid');
+  if(!APP.folders.length){g.innerHTML='<div class="empty">No folders yet.<br>Tap ＋ to create your first workspace.</div>';return}
+  g.innerHTML=APP.folders.map(f=>{
+    const lc=f.lists?.length||0,te=(f.lists||[]).reduce((s,l)=>s+(l.entries?.length||0),0);
+    return`<div class="card folder-card" onclick="openFolder('${f.id}')"><div class="folder-name">📁 ${esc(f.name)}</div><div class="folder-meta">${lc} list${lc!==1?'s':''} · ${te} entries</div></div>`
+  }).join('');
+}
+
+// ══════════ RENDER LISTS ══════════
+function renderLists(){
+  const folder=getFolder();if(!folder)return goToFolders();
+  document.getElementById('listsTitle').textContent='📁 '+folder.name;
+  document.getElementById('listsSub').textContent=(folder.lists?.length||0)+' lists';
+  const g=document.getElementById('listsGrid');
+  if(!folder.lists?.length){g.innerHTML='<div class="empty">No lists yet.<br>Tap ＋ to create a data collection list.</div>';return}
+  g.innerHTML=folder.lists.map(l=>{
+    const dots=(l.types||[]).map(t=>`<div class="type-preview-dot" style="background:${t.color};${t.color==='#e5e7eb'?'border:1px solid #666':''}"></div>`).join('');
+    return`<div class="card list-card" onclick="openList('${l.id}')" style="border-left-color:${l.types?.[0]?.color||'var(--accent)'}"><div class="list-name">${esc(l.name)}</div><div class="list-meta">${l.entries?.length||0} entries · ${l.types?.length||0} types</div><div class="type-preview">${dots}</div></div>`
+  }).join('');
+}
+
+// ══════════ RENDER ENTRIES ══════════
+function renderEntries(){
+  const list=getList();if(!list)return goToLists();
+  document.getElementById('entriesTitle').textContent=list.name;
+  document.getElementById('entriesSub').textContent=(list.entries?.length||0)+' entries';
+  const types=list.types||[];
+  document.getElementById('typeChips').innerHTML=types.map(t=>{
+    const a=selectedTypeId===t.id,bd=t.color==='#e5e7eb'?'border:1px solid #666;':'';
+    return`<div class="chip ${a?'active':''}" onclick="selectType('${t.id}')" style="color:${t.textColor||t.color}"><span class="chip-dot" style="background:${t.color};${bd}"></span>${esc(t.label)}</div>`
+  }).join('');
+  renderEntryForm(list);renderSummary(list);renderEntriesList(list);
+}
+function selectType(tid){selectedTypeId=tid;renderEntries()}
+
+function defaultFields(){return[
+  {key:'from',label:'From',type:'text',placeholder:'e.g. Panel'},
+  {key:'to',label:'To',type:'text',placeholder:'e.g. Cylinder'},
+  {key:'length',label:'Length (mm)',type:'number',placeholder:'mm'},
+  {key:'qty',label:'Qty',type:'number',placeholder:'1'},
+  {key:'notes',label:'Notes',type:'text',placeholder:'optional'}
+]}
+
+function fieldHTML(f){
+  const tp=f.type==='number'?'number':'text',im=f.type==='number'?'inputmode="numeric"':'';
+  return`<div><label class="field-label">${esc(f.label)}</label><input class="field-input" id="f_${f.key}" type="${tp}" ${im} placeholder="${esc(f.placeholder||'')}"></div>`
+}
+
+function renderEntryForm(list){
+  const form=document.getElementById('entryForm'),fields=list.fields||defaultFields(),isEd=!!editingEntryId;
+  let h='';
+  if(isEd)h+=`<div style="font-size:10px;color:var(--accent);margin-bottom:8px;">✏️ EDITING</div>`;
+  const nf=fields.filter(f=>f.key!=='notes'),nf2=fields.find(f=>f.key==='notes');
+  for(let i=0;i<nf.length;i+=2){h+=`<div class="field-row ${nf[i+1]?'field-row-2':''}" style="margin-bottom:8px;">${fieldHTML(nf[i])}${nf[i+1]?fieldHTML(nf[i+1]):''}</div>`}
+  if(nf2)h+=`<div style="margin-bottom:8px;">${fieldHTML(nf2)}</div>`;
+  const dis=!selectedTypeId?'disabled':'',bc=!selectedTypeId?'#333':isEd?'var(--accent)':'var(--success)';
+  h+=`<button class="btn btn-full" style="background:${bc};color:${!selectedTypeId?'#666':'#000'}" onclick="submitEntry()" ${dis}>${isEd?'💾 UPDATE':'➕ LOG ENTRY'}</button>`;
+  if(isEd)h+=`<button class="btn btn-full btn-ghost" style="margin-top:6px;" onclick="cancelEdit()">Cancel</button>`;
+  form.innerHTML=h;
+  if(isEd){const entry=(list.entries||[]).find(e=>e.id===editingEntryId);if(entry)fields.forEach(f=>{const el=document.getElementById('f_'+f.key);if(el)el.value=entry.data?.[f.key]||''})}
+}
+
+function renderSummary(list){
+  const bar=document.getElementById('summaryBar'),entries=list.entries||[];
+  if(!entries.length){bar.innerHTML='';return}
+  const lf=(list.fields||[]).find(f=>f.type==='number'&&f.key!=='qty'),qf=(list.fields||[]).find(f=>f.key==='qty');
+  let h=`<div class="chip ${!selectedTypeId?'active':''}" onclick="selectedTypeId=null;renderEntries();" style="color:#ccc;">ALL (${entries.length})</div>`;
+  (list.types||[]).forEach(t=>{
+    const te=entries.filter(e=>e.typeId===t.id);if(!te.length)return;
+    let tot=0;if(lf&&qf)tot=te.reduce((s,e)=>s+(parseFloat(e.data?.[lf.key])||0)*(parseInt(e.data?.[qf.key])||1),0);
+    const bd=t.color==='#e5e7eb'?'border:1px solid #666;':'';
+    h+=`<div class="chip" style="color:${t.textColor||t.color}"><span class="chip-dot" style="background:${t.color};${bd}"></span>${te.length}× ${tot?'= '+(tot/1000).toFixed(1)+'m':''}</div>`;
+  });bar.innerHTML=h;
+}
+
+function renderEntriesList(list){
+  const c=document.getElementById('entriesList');
+  let entries=(list.entries||[]).slice();
+  if(selectedTypeId)entries=entries.filter(e=>e.typeId===selectedTypeId);
+  if(!entries.length){c.innerHTML='<div class="empty">No entries yet. Select a type and start logging.</div>';return}
+  const fields=list.fields||defaultFields(),types=list.types||[];
+  const lf=fields.find(f=>f.type==='number'&&f.key!=='qty'),qf=fields.find(f=>f.key==='qty');
+  c.innerHTML=entries.slice().reverse().map((e,i)=>{
+    const t=types.find(tp=>tp.id===e.typeId)||{label:'?',color:'#555'},d=e.data||{};
+    const from=d.from||d[fields[0]?.key]||'',to=d.to||d[fields[1]?.key]||'';
+    const len=lf?(parseFloat(d[lf.key])||0):0,qty=qf?(parseInt(d[qf.key])||1):1;
+    return`<div class="entry-item" style="border-left-color:${t.color}"><div class="entry-main"><div style="display:flex;align-items:center;gap:6px;"><span class="entry-type" style="color:${t.textColor||t.color}">${esc(t.label)}</span><span class="entry-num">#${entries.length-i}</span></div><div class="entry-route">${esc(from)}${to?' → '+esc(to):''}</div>${lf?`<div class="entry-meta">${len}mm × ${qty} = <span style="color:var(--accent)">${len*qty}mm</span></div>`:''}${d.notes?`<div class="entry-notes">${esc(d.notes)}</div>`:''}</div><div class="entry-actions"><button onclick="editEntry('${e.id}')">✏️</button><button onclick="deleteEntry('${e.id}')">🗑</button></div></div>`
+  }).join('');
+}
+
+// ══════════ ENTRY CRUD ══════════
+function submitEntry(){
+  const list=getList();if(!list||!selectedTypeId)return;
+  const fields=list.fields||defaultFields(),data={};let has=false;
+  fields.forEach(f=>{const el=document.getElementById('f_'+f.key);if(el){data[f.key]=el.value.trim();if(f.key!=='notes'&&f.key!=='qty'&&el.value.trim())has=true}});
+  if(!has)return;
+  if(editingEntryId){const en=list.entries.find(e=>e.id===editingEntryId);if(en){en.typeId=selectedTypeId;en.data=data;en.ts=new Date().toISOString()}editingEntryId=null}
+  else{if(!list.entries)list.entries=[];list.entries.push({id:uid(),typeId:selectedTypeId,data,ts:new Date().toISOString()})}
+  saveToSupabase();
+  fields.forEach(f=>{const el=document.getElementById('f_'+f.key);if(el&&f.key!=='qty')el.value=''});
+  renderEntries();
+  const ff=fields.find(f=>f.key!=='notes'&&f.key!=='qty');if(ff)document.getElementById('f_'+ff.key)?.focus();
+}
+function editEntry(eid){const list=getList(),en=list?.entries?.find(e=>e.id===eid);if(!en)return;selectedTypeId=en.typeId;editingEntryId=eid;renderEntries();window.scrollTo({top:0,behavior:'smooth'})}
+function cancelEdit(){editingEntryId=null;renderEntries()}
+function deleteEntry(eid){const list=getList();if(!list)return;list.entries=(list.entries||[]).filter(e=>e.id!==eid);if(editingEntryId===eid)editingEntryId=null;saveToSupabase();renderEntries()}
+
+// ══════════ CSV EXPORT ══════════
+function exportListCSV(){
+  const list=getList();if(!list)return;
+  const fields=list.fields||defaultFields(),types=list.types||[];
+  const hdr=['Type','Part No',...fields.map(f=>f.label),'Timestamp'];
+  const rows=(list.entries||[]).map(e=>{const t=types.find(tp=>tp.id===e.typeId)||{label:'',partNo:''};return[t.label,t.partNo||'',...fields.map(f=>e.data?.[f.key]||''),e.ts||'']});
+  let csv=hdr.map(h=>`"${h}"`).join(',')+'\n';csv+=rows.map(r=>r.map(v=>`"${v}"`).join(',')).join('\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download=`${list.name.replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.csv`;a.click();
+}
+
+// ══════════ MODALS ══════════
+function showModal(html){document.getElementById('modalContainer').innerHTML=`<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal-sheet"><div class="modal-handle"></div>${html}</div></div>`}
+function closeModal(){document.getElementById('modalContainer').innerHTML=''}
+
+function showNewFolderModal(){
+  showModal(`<div class="modal-title">New Folder</div><div class="field"><label class="field-label">Folder Name</label><input class="field-input" id="newFolderName" placeholder="e.g. Compressor Assy"></div><button class="btn btn-accent btn-full" onclick="createFolder()">Create Folder</button>`);
+  setTimeout(()=>document.getElementById('newFolderName')?.focus(),300);
+}
+function createFolder(){const n=document.getElementById('newFolderName')?.value.trim();if(!n)return;APP.folders.push({id:uid(),name:n,lists:[]});saveToSupabase();closeModal();renderFolders()}
+function confirmDeleteFolder(){const f=getFolder();if(!f)return;showModal(`<div class="modal-title">Delete Folder?</div><p style="color:var(--text2);margin-bottom:16px;">Delete "${esc(f.name)}" and all its lists permanently.</p><button class="btn btn-danger btn-full" onclick="deleteFolder()">Delete Forever</button><button class="btn btn-ghost btn-full" style="margin-top:8px;" onclick="closeModal()">Cancel</button>`)}
+function deleteFolder(){APP.folders=APP.folders.filter(f=>f.id!==currentFolderId);saveToSupabase();closeModal();goToFolders()}
+
+// ─── List CRUD ───
+const PRESET_COLORS=['#ef4444','#f97316','#f59e0b','#22c55e','#14b8a6','#3b82f6','#8b5cf6','#ec4899','#dc2626','#ea580c','#d97706','#16a34a','#0d9488','#2563eb','#7c3aed','#db2777','#e5e7eb','#1f2937','#78716c','#a3a3a3','#fbbf24','#34d399','#60a5fa','#c084fc'];
+let newListTypes=[],newListFields=[],pickedColor='#ef4444';
+
+function showNewListModal(){newListTypes=[];newListFields=[...defaultFields()];renderListModal('new')}
+function showEditListModal(){const l=getList();if(!l)return;newListTypes=JSON.parse(JSON.stringify(l.types||[]));newListFields=JSON.parse(JSON.stringify(l.fields||defaultFields()));renderListModal('edit')}
+
+function renderListModal(mode){
+  const list=mode==='edit'?getList():null,nv=list?esc(list.name):'',nid=mode==='edit'?'editListName':'newListName';
+  const th=newListTypes.map((t,i)=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span class="chip-dot" style="background:${t.color};${t.color==='#e5e7eb'?'border:1px solid #666':''}"></span><span style="flex:1;font-size:13px;font-weight:600;">${esc(t.label)}</span><span style="font-size:10px;color:var(--text2)">${esc(t.partNo||'')}</span><button class="icon-btn" style="width:28px;height:28px;font-size:12px;color:var(--danger)" onclick="newListTypes.splice(${i},1);renderListModal('${mode}')">✕</button></div>`).join('');
+  const fh=newListFields.map((f,i)=>`<div class="field-config-item"><input class="field-input" value="${esc(f.label)}" onchange="newListFields[${i}].label=this.value" style="font-size:12px;padding:6px;"><select class="field-input" onchange="newListFields[${i}].type=this.value" style="font-size:11px;padding:6px;"><option value="text" ${f.type==='text'?'selected':''}>Text</option><option value="number" ${f.type==='number'?'selected':''}>Number</option></select><button class="icon-btn" style="width:28px;height:28px;font-size:12px;color:var(--danger)" onclick="newListFields.splice(${i},1);renderListModal('${mode}')">✕</button></div>`).join('');
+  const ab=mode==='edit'?`<button class="btn btn-accent btn-full" style="margin-top:16px;" onclick="saveListEdits()">Save Changes</button><button class="btn btn-danger btn-full" style="margin-top:8px;" onclick="confirmDeleteList()">Delete List</button>`:`<button class="btn btn-accent btn-full" style="margin-top:16px;" onclick="createList()">Create List</button>`;
+  showModal(`<div class="modal-title">${mode==='edit'?'Edit':'New'} List</div><div class="field"><label class="field-label">List Name</label><input class="field-input" id="${nid}" value="${nv}" placeholder="e.g. Hose Routing"></div><label class="field-label" style="margin-top:12px;">Item Types</label><div>${th}</div><div style="margin-top:8px;"><div class="add-type-row"><input class="field-input" id="newTypeName" placeholder="Type name" style="font-size:12px;padding:8px;"><input class="field-input" id="newTypePartNo" placeholder="Part #" style="font-size:12px;padding:8px;width:80px;"></div><div class="color-grid" style="margin-top:8px;">${PRESET_COLORS.map(c=>`<div class="color-swatch" style="background:${c};${c==='#e5e7eb'?'border:1px solid #666':''}" onclick="pickColorFn(this,'${c}')"></div>`).join('')}</div><button class="btn btn-ghost btn-sm" style="margin-top:6px;width:100%;" onclick="addTypeToList('${mode}')">+ Add Type</button></div><label class="field-label" style="margin-top:16px;">Data Fields</label><div>${fh}</div><button class="btn btn-ghost btn-sm" style="margin-top:6px;width:100%;" onclick="addFieldToList('${mode}')">+ Add Field</button>${ab}`);
+}
+
+function pickColorFn(el,c){pickedColor=c;document.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('active'));el.classList.add('active')}
+function addTypeToList(mode){const n=document.getElementById('newTypeName')?.value.trim();if(!n)return;const p=document.getElementById('newTypePartNo')?.value.trim();const tc=['#e5e7eb','#fbbf24','#f59e0b','#a3a3a3'].includes(pickedColor)?'#333':pickedColor;newListTypes.push({id:uid(),label:n,color:pickedColor,textColor:tc,partNo:p});renderListModal(mode)}
+function addFieldToList(mode){newListFields.push({key:'f'+uid(),label:'New Field',type:'text',placeholder:''});renderListModal(mode)}
+
+function createList(){const n=document.getElementById('newListName')?.value.trim();if(!n)return;const folder=getFolder();if(!folder)return;newListFields.forEach((f,i)=>{if(!f.key)f.key='f'+i});if(!folder.lists)folder.lists=[];folder.lists.push({id:uid(),name:n,types:newListTypes,fields:newListFields,entries:[]});saveToSupabase();closeModal();renderLists()}
+function saveListEdits(){const list=getList();if(!list)return;const n=document.getElementById('editListName')?.value.trim();if(n)list.name=n;newListFields.forEach((f,i)=>{if(!f.key)f.key='f'+i});list.types=newListTypes;list.fields=newListFields;saveToSupabase();closeModal();renderEntries()}
+function confirmDeleteList(){const l=getList();showModal(`<div class="modal-title">Delete List?</div><p style="color:var(--text2);margin-bottom:16px;">Delete "${esc(l?.name)}" and all ${l?.entries?.length||0} entries.</p><button class="btn btn-danger btn-full" onclick="deleteList()">Delete Forever</button><button class="btn btn-ghost btn-full" style="margin-top:8px;" onclick="closeModal()">Cancel</button>`)}
+function deleteList(){const f=getFolder();if(!f)return;f.lists=(f.lists||[]).filter(l=>l.id!==currentListId);saveToSupabase();closeModal();goToLists()}
+
+// ══════════ INIT ══════════
+checkAuth();
+</script>
+</body>
+</html>
