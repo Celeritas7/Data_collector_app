@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Field Logger</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -100,6 +101,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <button class="btn-google" onclick="signIn()">
       <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"> Sign in with Google
     </button>
+    <div id="googleBtnContainer" style="margin-top:12px;display:flex;justify-content:center;"></div>
     <div style="margin-top:16px;font-size:11px;color:var(--text2);" id="loginStatus"></div>
   </div>
 </div>
@@ -113,7 +115,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     </div>
   </div>
   <div class="auth-bar" id="authBar">
-    <div class="auth-user"><div class="auth-avatar" id="authAvatar">?</div><span id="authEmail" style="color:var(--text2);font-size:11px;"></span></div>
+    <div class="auth-user"><div class="auth-avatar" id="authAvatar">?</div><span id="authEmail" style="color:var(--text2);font-size:11px;"></span><span id="authRole" style="color:var(--accent);font-size:10px;background:var(--bg);padding:2px 6px;border-radius:8px;margin-left:6px;"></span></div>
     <button class="btn btn-sm btn-ghost" onclick="signOut()">Sign Out</button>
   </div>
   <div class="scroll-area"><div class="grid" id="foldersGrid"></div></div>
@@ -156,29 +158,108 @@ const SUPABASE_ANON_KEY='YOUR_ANON_KEY_HERE';
 let sb=null;
 try{sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY)}catch(e){console.error('Supabase init failed:',e)}
 
-let APP={folders:[]},userEmail=null,currentFolderId=null,currentListId=null,selectedTypeId=null,editingEntryId=null,saveTimeout=null,activeField='from';
+let APP={folders:[]},userEmail=null,userRole=null,currentFolderId=null,currentListId=null,selectedTypeId=null,editingEntryId=null,saveTimeout=null,activeField='from';
 
-// ══════════ AUTH ══════════
-async function signIn(){
+// ══════════ AUTH (Google Sign-In + roles table) ══════════
+const GOOGLE_CLIENT_ID='49176270226-5qkuvfilpiabjd3v9vrj7nlpks0btogi.apps.googleusercontent.com';
+
+function signIn(){
   if(!sb){document.getElementById('loginStatus').textContent='Error: Supabase not loaded. Check your anon key.';return}
-  document.getElementById('loginStatus').textContent='Redirecting to Google...';
-  const{error}=await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:window.location.origin+window.location.pathname}});
-  if(error)document.getElementById('loginStatus').textContent='Error: '+error.message;
+  document.getElementById('loginStatus').textContent='Opening Google Sign-In...';
+  initGoogleSignIn();
 }
-async function signOut(){if(sb)await sb.auth.signOut();userEmail=null;APP={folders:[]};showPage('pageLogin')}
-async function checkAuth(){
+
+function initGoogleSignIn(){
+  try{
+    google.accounts.id.initialize({
+      client_id:GOOGLE_CLIENT_ID,
+      callback:handleGoogleCallback,
+      auto_select:false
+    });
+    // Render a standard Google button as reliable fallback
+    google.accounts.id.renderButton(
+      document.getElementById('googleBtnContainer'),
+      {theme:'outline',size:'large',width:280,text:'signin_with'}
+    );
+    // Also try One Tap
+    google.accounts.id.prompt();
+  }catch(e){
+    document.getElementById('loginStatus').textContent='Google Sign-In not ready. Refresh page.';
+    console.error('GSI error:',e);
+  }
+}
+
+function handleGoogleCallback(response){
+  try{
+    const payload=JSON.parse(atob(response.credential.split('.')[1]));
+    const email=payload.email;
+    const name=payload.name||email;
+    if(!email){document.getElementById('loginStatus').textContent='Error: No email in Google response';return}
+    document.getElementById('loginStatus').textContent='Checking access...';
+    verifyAndLogin(email,name);
+  }catch(e){
+    document.getElementById('loginStatus').textContent='Error: '+e.message;
+    console.error('Google callback error:',e);
+  }
+}
+
+async function verifyAndLogin(email,name){
+  try{
+    // Check if user exists in roles table
+    const{data,error}=await sb.from('authentication_mode_user_roles').select('*').eq('email',email.toLowerCase()).single();
+    if(error&&error.code==='PGRST116'){
+      // User not in roles table — auto-add as viewer
+      await sb.from('authentication_mode_user_roles').insert({email:email.toLowerCase(),name:name,role:'viewer'});
+      userEmail=email.toLowerCase();
+      userRole='viewer';
+    }else if(error){
+      throw error;
+    }else{
+      userEmail=data.email;
+      userRole=data.role;
+    }
+    // Log the login
+    await sb.from('authentication_mode_audit_log').insert({
+      user_email:userEmail,action:'login',table_name:'data_collection_store',details:{role:userRole,app:'field_logger'}
+    }).catch(()=>{});
+    // Save to localStorage for session persistence
+    localStorage.setItem('fl-session',JSON.stringify({email:userEmail,role:userRole,name:name}));
+    onLoggedIn();
+  }catch(e){
+    document.getElementById('loginStatus').textContent='Access denied: '+e.message;
+    console.error('Auth verify error:',e);
+  }
+}
+
+function signOut(){
+  userEmail=null;userRole=null;APP={folders:[]};
+  localStorage.removeItem('fl-session');
+  google.accounts.id.disableAutoSelect();
+  showPage('pageLogin');
+  document.getElementById('loginStatus').textContent='';
+}
+
+function checkAuth(){
   if(!sb){showPage('pageLogin');document.getElementById('loginStatus').textContent='Error: Supabase not loaded. Paste your anon key in the HTML file.';return}
-  const{data:{session}}=await sb.auth.getSession();
-  if(session?.user){userEmail=session.user.email;onLoggedIn()}else showPage('pageLogin');
+  // Check localStorage session
+  try{
+    const session=JSON.parse(localStorage.getItem('fl-session'));
+    if(session?.email){
+      userEmail=session.email;
+      userRole=session.role||'viewer';
+      onLoggedIn();
+      return;
+    }
+  }catch{}
+  showPage('pageLogin');
 }
+
 function onLoggedIn(){
   document.getElementById('authEmail').textContent=userEmail;
   document.getElementById('authAvatar').textContent=userEmail.charAt(0).toUpperCase();
+  document.getElementById('authRole').textContent=userRole||'viewer';
   showPage('pageFolders');loadFromSupabase();
 }
-if(sb){sb.auth.onAuthStateChange((ev,session)=>{
-  if(ev==='SIGNED_IN'&&session?.user){userEmail=session.user.email;onLoggedIn()}
-});}
 
 // ══════════ SUPABASE DATA ══════════
 async function loadFromSupabase(){

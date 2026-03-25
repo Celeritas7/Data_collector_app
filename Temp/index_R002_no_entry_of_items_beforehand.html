@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Field Logger</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#0c0c0e;--bg2:#141418;--bg3:#1c1c22;--border:#2a2a33;--text:#d8d8e0;--text2:#8888a0;--accent:#f0a030;--accent2:#e08820;--danger:#e04040;--success:#30c060;--blue:#4090e0;--radius:8px}
@@ -76,21 +75,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .field-config-item{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:6px;display:flex;align-items:center;gap:8px}
 .field-config-item input{flex:1}.field-config-item select{width:90px}
 .add-type-row{display:flex;gap:6px;align-items:center;margin-top:8px}.add-type-row input{flex:1}
-.cam-btn{width:36px;height:36px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg3);color:var(--accent);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.cam-btn:active{background:var(--border)}
-.ocr-status{font-size:10px;color:var(--accent);padding:4px 0;display:none}
-.ocr-status.show{display:block}
-.ocr-status.err{color:var(--danger)}
-.item-picker{display:flex;gap:5px;flex-wrap:wrap;padding:6px 0}
-.item-chip{padding:5px 10px;border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:'IBM Plex Mono',monospace;transition:all .15s}
-.item-chip:active,.item-chip.sel{background:var(--accent);color:#000;border-color:var(--accent)}
-.field-focus-indicator{font-size:9px;color:var(--accent);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
-.preload-tag{display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:12px;font-size:11px;background:var(--bg3);border:1px solid var(--border);margin:2px}
-.preload-tag button{background:none;border:none;color:var(--danger);cursor:pointer;font-size:12px;padding:0 2px}
 </style>
 </head>
 <body>
-<input type="file" id="camInput" accept="image/*" capture="environment" style="display:none">
 
 <div class="page active" id="pageLogin">
   <div class="login-page">
@@ -156,7 +143,7 @@ const SUPABASE_ANON_KEY='YOUR_ANON_KEY_HERE';
 let sb=null;
 try{sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY)}catch(e){console.error('Supabase init failed:',e)}
 
-let APP={folders:[]},userEmail=null,currentFolderId=null,currentListId=null,selectedTypeId=null,editingEntryId=null,saveTimeout=null,activeField='from';
+let APP={folders:[]},userEmail=null,currentFolderId=null,currentListId=null,selectedTypeId=null,editingEntryId=null,saveTimeout=null;
 
 // ══════════ AUTH ══════════
 async function signIn(){
@@ -274,29 +261,13 @@ function defaultFields(){return[
 
 function fieldHTML(f){
   const tp=f.type==='number'?'number':'text',im=f.type==='number'?'inputmode="numeric"':'';
-  const camBtn=f.type==='text'&&f.key!=='notes'?`<button class="cam-btn" style="position:absolute;right:4px;top:50%;transform:translateY(-50%);width:30px;height:30px;font-size:14px;" onclick="openCamForField('f_${f.key}')" title="Scan">📷</button>`:'';
-  const pad=camBtn?'padding-right:38px;':'';
-  return`<div><label class="field-label">${esc(f.label)}</label><div style="position:relative;"><input class="field-input" id="f_${f.key}" type="${tp}" ${im} placeholder="${esc(f.placeholder||'')}" style="${pad}">${camBtn}</div></div>`
+  return`<div><label class="field-label">${esc(f.label)}</label><input class="field-input" id="f_${f.key}" type="${tp}" ${im} placeholder="${esc(f.placeholder||'')}"></div>`
 }
 
 function renderEntryForm(list){
   const form=document.getElementById('entryForm'),fields=list.fields||defaultFields(),isEd=!!editingEntryId;
-  const items=list.preloadedItems||[];
   let h='';
   if(isEd)h+=`<div style="font-size:10px;color:var(--accent);margin-bottom:8px;">✏️ EDITING</div>`;
-  h+=`<div id="ocrStatusEntry" class="ocr-status"></div>`;
-
-  // Preloaded item picker
-  if(items.length){
-    h+=`<div style="margin-bottom:8px;">`;
-    h+=`<div class="field-focus-indicator">Tap item → fills <span id="activeFieldLabel" style="color:var(--accent);font-weight:700;">${activeField}</span></div>`;
-    h+=`<div class="item-picker">`;
-    items.forEach((it,i)=>{
-      h+=`<div class="item-chip" onclick="pickItem(${i})">${esc(it)}</div>`;
-    });
-    h+=`</div></div>`;
-  }
-
   const nf=fields.filter(f=>f.key!=='notes'),nf2=fields.find(f=>f.key==='notes');
   for(let i=0;i<nf.length;i+=2){h+=`<div class="field-row ${nf[i+1]?'field-row-2':''}" style="margin-bottom:8px;">${fieldHTML(nf[i])}${nf[i+1]?fieldHTML(nf[i+1]):''}</div>`}
   if(nf2)h+=`<div style="margin-bottom:8px;">${fieldHTML(nf2)}</div>`;
@@ -304,28 +275,7 @@ function renderEntryForm(list){
   h+=`<button class="btn btn-full" style="background:${bc};color:${!selectedTypeId?'#666':'#000'}" onclick="submitEntry()" ${dis}>${isEd?'💾 UPDATE':'➕ LOG ENTRY'}</button>`;
   if(isEd)h+=`<button class="btn btn-full btn-ghost" style="margin-top:6px;" onclick="cancelEdit()">Cancel</button>`;
   form.innerHTML=h;
-
-  // Add focus listeners on from/to fields to track active field
-  const fromEl=document.getElementById('f_from'),toEl=document.getElementById('f_to');
-  if(fromEl)fromEl.addEventListener('focus',()=>{activeField='from';updateActiveLabel()});
-  if(toEl)toEl.addEventListener('focus',()=>{activeField='to';updateActiveLabel()});
-
   if(isEd){const entry=(list.entries||[]).find(e=>e.id===editingEntryId);if(entry)fields.forEach(f=>{const el=document.getElementById('f_'+f.key);if(el)el.value=entry.data?.[f.key]||''})}
-}
-
-function updateActiveLabel(){
-  const el=document.getElementById('activeFieldLabel');
-  if(el)el.textContent=activeField;
-}
-
-function pickItem(idx){
-  const list=getList();if(!list)return;
-  const items=list.preloadedItems||[];
-  const name=items[idx];if(!name)return;
-  const el=document.getElementById('f_'+activeField);
-  if(el){el.value=name;el.focus()}
-  // Auto-switch to next field
-  if(activeField==='from'){activeField='to';updateActiveLabel()}
 }
 
 function renderSummary(list){
@@ -398,46 +348,17 @@ function deleteFolder(){APP.folders=APP.folders.filter(f=>f.id!==currentFolderId
 
 // ─── List CRUD ───
 const PRESET_COLORS=['#ef4444','#f97316','#f59e0b','#22c55e','#14b8a6','#3b82f6','#8b5cf6','#ec4899','#dc2626','#ea580c','#d97706','#16a34a','#0d9488','#2563eb','#7c3aed','#db2777','#e5e7eb','#1f2937','#78716c','#a3a3a3','#fbbf24','#34d399','#60a5fa','#c084fc'];
-let newListTypes=[],newListFields=[],newListItems=[],pickedColor='#ef4444';
+let newListTypes=[],newListFields=[],pickedColor='#ef4444';
 
-function showNewListModal(){newListTypes=[];newListFields=[...defaultFields()];newListItems=[];renderListModal('new')}
-function showEditListModal(){const l=getList();if(!l)return;newListTypes=JSON.parse(JSON.stringify(l.types||[]));newListFields=JSON.parse(JSON.stringify(l.fields||defaultFields()));newListItems=[...(l.preloadedItems||[])];renderListModal('edit')}
+function showNewListModal(){newListTypes=[];newListFields=[...defaultFields()];renderListModal('new')}
+function showEditListModal(){const l=getList();if(!l)return;newListTypes=JSON.parse(JSON.stringify(l.types||[]));newListFields=JSON.parse(JSON.stringify(l.fields||defaultFields()));renderListModal('edit')}
 
 function renderListModal(mode){
   const list=mode==='edit'?getList():null,nv=list?esc(list.name):'',nid=mode==='edit'?'editListName':'newListName';
   const th=newListTypes.map((t,i)=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span class="chip-dot" style="background:${t.color};${t.color==='#e5e7eb'?'border:1px solid #666':''}"></span><span style="flex:1;font-size:13px;font-weight:600;">${esc(t.label)}</span><span style="font-size:10px;color:var(--text2)">${esc(t.partNo||'')}</span><button class="icon-btn" style="width:28px;height:28px;font-size:12px;color:var(--danger)" onclick="newListTypes.splice(${i},1);renderListModal('${mode}')">✕</button></div>`).join('');
   const fh=newListFields.map((f,i)=>`<div class="field-config-item"><input class="field-input" value="${esc(f.label)}" onchange="newListFields[${i}].label=this.value" style="font-size:12px;padding:6px;"><select class="field-input" onchange="newListFields[${i}].type=this.value" style="font-size:11px;padding:6px;"><option value="text" ${f.type==='text'?'selected':''}>Text</option><option value="number" ${f.type==='number'?'selected':''}>Number</option></select><button class="icon-btn" style="width:28px;height:28px;font-size:12px;color:var(--danger)" onclick="newListFields.splice(${i},1);renderListModal('${mode}')">✕</button></div>`).join('');
-  // Preloaded items
-  const ih=newListItems.map((it,i)=>`<span class="preload-tag">${esc(it)}<button onclick="newListItems.splice(${i},1);renderListModal('${mode}')">✕</button></span>`).join('');
-
   const ab=mode==='edit'?`<button class="btn btn-accent btn-full" style="margin-top:16px;" onclick="saveListEdits()">Save Changes</button><button class="btn btn-danger btn-full" style="margin-top:8px;" onclick="confirmDeleteList()">Delete List</button>`:`<button class="btn btn-accent btn-full" style="margin-top:16px;" onclick="createList()">Create List</button>`;
-  showModal(`<div class="modal-title">${mode==='edit'?'Edit':'New'} List</div>
-<div class="field"><label class="field-label">List Name</label><input class="field-input" id="${nid}" value="${nv}" placeholder="e.g. Hose Routing"></div>
-
-<label class="field-label" style="margin-top:12px;">Item Types</label>
-<div>${th}</div>
-<div style="margin-top:8px;">
-  <div class="add-type-row">
-    <input class="field-input" id="newTypeName" placeholder="Type name" style="font-size:12px;padding:8px;">
-    <input class="field-input" id="newTypePartNo" placeholder="Part #" style="font-size:12px;padding:8px;width:80px;">
-  </div>
-  <div class="color-grid" style="margin-top:8px;">${PRESET_COLORS.map(c=>`<div class="color-swatch" style="background:${c};${c==='#e5e7eb'?'border:1px solid #666':''}" onclick="pickColorFn(this,'${c}')"></div>`).join('')}</div>
-  <button class="btn btn-ghost btn-sm" style="margin-top:6px;width:100%;" onclick="addTypeToList('${mode}')">+ Add Type</button>
-</div>
-
-<label class="field-label" style="margin-top:16px;">Preloaded Items <span style="color:#666;text-transform:none;">(tap to fill From/To)</span></label>
-<div style="margin-bottom:6px;">${ih||'<span style="font-size:11px;color:#555;">None yet</span>'}</div>
-<div style="display:flex;gap:6px;">
-  <input class="field-input" id="newItemName" placeholder="Item name" style="font-size:12px;padding:8px;flex:1;">
-  <button class="cam-btn" onclick="openCamForItem('${mode}')" title="Scan label">📷</button>
-  <button class="btn btn-ghost btn-sm" onclick="addPreloadedItem('${mode}')">+ Add</button>
-</div>
-<div id="ocrStatusModal" class="ocr-status"></div>
-
-<label class="field-label" style="margin-top:16px;">Data Fields</label>
-<div>${fh}</div>
-<button class="btn btn-ghost btn-sm" style="margin-top:6px;width:100%;" onclick="addFieldToList('${mode}')">+ Add Field</button>
-${ab}`);
+  showModal(`<div class="modal-title">${mode==='edit'?'Edit':'New'} List</div><div class="field"><label class="field-label">List Name</label><input class="field-input" id="${nid}" value="${nv}" placeholder="e.g. Hose Routing"></div><label class="field-label" style="margin-top:12px;">Item Types</label><div>${th}</div><div style="margin-top:8px;"><div class="add-type-row"><input class="field-input" id="newTypeName" placeholder="Type name" style="font-size:12px;padding:8px;"><input class="field-input" id="newTypePartNo" placeholder="Part #" style="font-size:12px;padding:8px;width:80px;"></div><div class="color-grid" style="margin-top:8px;">${PRESET_COLORS.map(c=>`<div class="color-swatch" style="background:${c};${c==='#e5e7eb'?'border:1px solid #666':''}" onclick="pickColorFn(this,'${c}')"></div>`).join('')}</div><button class="btn btn-ghost btn-sm" style="margin-top:6px;width:100%;" onclick="addTypeToList('${mode}')">+ Add Type</button></div><label class="field-label" style="margin-top:16px;">Data Fields</label><div>${fh}</div><button class="btn btn-ghost btn-sm" style="margin-top:6px;width:100%;" onclick="addFieldToList('${mode}')">+ Add Field</button>${ab}`);
 }
 
 function pickColorFn(el,c){pickedColor=c;document.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('active'));el.classList.add('active')}
@@ -448,61 +369,6 @@ function createList(){const n=document.getElementById('newListName')?.value.trim
 function saveListEdits(){const list=getList();if(!list)return;const n=document.getElementById('editListName')?.value.trim();if(n)list.name=n;newListFields.forEach((f,i)=>{if(!f.key)f.key='f'+i});list.types=newListTypes;list.fields=newListFields;saveToSupabase();closeModal();renderEntries()}
 function confirmDeleteList(){const l=getList();showModal(`<div class="modal-title">Delete List?</div><p style="color:var(--text2);margin-bottom:16px;">Delete "${esc(l?.name)}" and all ${l?.entries?.length||0} entries.</p><button class="btn btn-danger btn-full" onclick="deleteList()">Delete Forever</button><button class="btn btn-ghost btn-full" style="margin-top:8px;" onclick="closeModal()">Cancel</button>`)}
 function deleteList(){const f=getFolder();if(!f)return;f.lists=(f.lists||[]).filter(l=>l.id!==currentListId);saveToSupabase();closeModal();goToLists()}
-
-// ══════════ OCR / CAMERA ══════════
-let ocrTargetField=null;
-let ocrMode=null; // 'type' or 'field'
-let ocrListMode=null; // for type: which list modal mode
-
-function openCamForType(mode){
-  ocrMode='type';ocrListMode=mode;
-  document.getElementById('camInput').click();
-}
-function openCamForField(fieldId){
-  ocrMode='field';ocrTargetField=fieldId;
-  document.getElementById('camInput').click();
-}
-
-document.getElementById('camInput').addEventListener('change',async function(e){
-  const file=e.target.files[0];
-  if(!file)return;
-  e.target.value=''; // reset so same file can re-trigger
-
-  // Show status
-  let statusEl=document.getElementById(ocrMode==='type'?'ocrStatusModal':'ocrStatusEntry');
-  if(statusEl){statusEl.textContent='📷 Reading text...';statusEl.className='ocr-status show'}
-
-  try{
-    const result=await Tesseract.recognize(file,'eng',{
-      logger:m=>{if(m.status==='recognizing text'&&statusEl){statusEl.textContent=`📷 Reading... ${Math.round(m.progress*100)}%`}}
-    });
-    const text=result.data.text.trim();
-    if(!text){
-      if(statusEl){statusEl.textContent='No text found. Try a clearer photo.';statusEl.className='ocr-status show err'}
-      return;
-    }
-    // Clean: take first meaningful line
-    const lines=text.split('\n').map(l=>l.trim()).filter(l=>l.length>1);
-    const bestLine=lines[0]||text;
-
-    if(ocrMode==='type'){
-      const el=document.getElementById('newTypeName');
-      if(el)el.value=bestLine;
-      // Also try to get part number from second line
-      if(lines.length>1){const pel=document.getElementById('newTypePartNo');if(pel&&!pel.value)pel.value=lines[1]}
-      if(statusEl){statusEl.textContent='✅ Got: '+bestLine;statusEl.className='ocr-status show'}
-    }else if(ocrMode==='field'){
-      const el=document.getElementById(ocrTargetField);
-      if(el)el.value=bestLine;
-      if(statusEl){statusEl.textContent='✅ Got: '+bestLine;statusEl.className='ocr-status show'}
-    }
-    // Auto-hide status after 3s
-    setTimeout(()=>{if(statusEl)statusEl.className='ocr-status'},3000);
-  }catch(err){
-    console.error('OCR error:',err);
-    if(statusEl){statusEl.textContent='OCR failed: '+err.message;statusEl.className='ocr-status show err'}
-  }
-});
 
 // ══════════ INIT ══════════
 checkAuth();
