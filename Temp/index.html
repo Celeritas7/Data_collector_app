@@ -139,19 +139,22 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 // ══════════ CONFIG ══════════
 // Paste your Supabase anon key from js/config.js
 const SUPABASE_URL='https://wylxvmkcrexwfpjpbhyy.supabase.co';
-const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5bHh2bWtjcmV4d2ZwanBiaHl5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2MzkxMDYsImV4cCI6MjA4NDIxNTEwNn0.6Bxo42hx4jwlJGWnfjiTpiDUsYfc1QLTN3YtrU1efak';
-const supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+const SUPABASE_ANON_KEY='YOUR_ANON_KEY_HERE';
+let supabase=null;
+try{supabase=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY)}catch(e){console.error('Supabase init failed:',e)}
 
 let APP={folders:[]},userEmail=null,currentFolderId=null,currentListId=null,selectedTypeId=null,editingEntryId=null,saveTimeout=null;
 
 // ══════════ AUTH ══════════
 async function signIn(){
+  if(!supabase){document.getElementById('loginStatus').textContent='Error: Supabase not loaded. Check your anon key.';return}
   document.getElementById('loginStatus').textContent='Redirecting to Google...';
   const{error}=await supabase.auth.signInWithOAuth({provider:'google',options:{redirectTo:window.location.origin+window.location.pathname}});
   if(error)document.getElementById('loginStatus').textContent='Error: '+error.message;
 }
-async function signOut(){await supabase.auth.signOut();userEmail=null;APP={folders:[]};showPage('pageLogin')}
+async function signOut(){if(supabase)await supabase.auth.signOut();userEmail=null;APP={folders:[]};showPage('pageLogin')}
 async function checkAuth(){
+  if(!supabase){showPage('pageLogin');document.getElementById('loginStatus').textContent='Error: Supabase not loaded. Paste your anon key in the HTML file.';return}
   const{data:{session}}=await supabase.auth.getSession();
   if(session?.user){userEmail=session.user.email;onLoggedIn()}else showPage('pageLogin');
 }
@@ -160,12 +163,13 @@ function onLoggedIn(){
   document.getElementById('authAvatar').textContent=userEmail.charAt(0).toUpperCase();
   showPage('pageFolders');loadFromSupabase();
 }
-supabase.auth.onAuthStateChange((ev,session)=>{
+if(supabase){supabase.auth.onAuthStateChange((ev,session)=>{
   if(ev==='SIGNED_IN'&&session?.user){userEmail=session.user.email;onLoggedIn()}
-});
+});}
 
 // ══════════ SUPABASE DATA ══════════
 async function loadFromSupabase(){
+  if(!supabase){setSyncState('err');renderFolders();return}
   try{
     const{data,error}=await supabase.from('data_collection_store').select('data').eq('user_email',userEmail).single();
     if(error&&error.code==='PGRST116'){
