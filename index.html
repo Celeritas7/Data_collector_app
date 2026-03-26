@@ -70,6 +70,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .type-preview{display:flex;gap:4px;margin-top:6px}.type-preview-dot{width:12px;height:12px;border-radius:50%}
 .scroll-area{flex:1;overflow-y:auto;padding-bottom:80px}
 .page{display:none;flex-direction:column;height:100vh}.page.active{display:flex}
+.summary-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+.summary-table th{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;text-align:left;padding:6px 8px;border-bottom:1px solid var(--border)}
+.summary-table td{padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text)}
+.summary-table .type-header{background:var(--bg3);font-weight:700;font-size:13px;padding:10px 8px}
+.summary-table .total-row{font-weight:700;color:var(--accent);background:var(--bg3)}
 .login-page{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;padding:30px;text-align:center}
 .login-logo{font-size:48px;margin-bottom:16px}
 .login-title{font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:24px;color:var(--accent);margin-bottom:8px}
@@ -126,10 +131,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <button class="topbar-back" onclick="goToFolders()" style="display:block">‹</button>
     <div style="flex:1"><div class="topbar-title" id="listsTitle">Folder</div><div class="topbar-sub" id="listsSub"></div></div>
     <div class="topbar-actions">
+      <button class="btn btn-sm btn-ghost" onclick="showFolderSummary()" title="Summary by Type">📊</button>
+      <button class="icon-btn" onclick="showFolderTypesModal()" title="Manage Types">⚙</button>
       <button class="icon-btn" onclick="showNewListModal()" title="New List">＋</button>
       <button class="icon-btn" onclick="confirmDeleteFolder()" title="Delete Folder" style="color:var(--danger)">🗑</button>
     </div>
   </div>
+  <div id="folderTypesBar" style="padding:8px 14px;border-bottom:1px solid var(--border);background:var(--bg2);display:none;"><div class="chip-row" id="folderTypeChips"></div></div>
   <div class="scroll-area"><div class="grid" id="listsGrid"></div></div>
 </div>
 
@@ -218,10 +226,10 @@ async function verifyAndLogin(email,name){
       userEmail=data.email;
       userRole=data.role;
     }
-    // Log the login (ignore errors)
+    // Log the login
     try{await sb.from('authentication_mode_audit_log').insert({
       user_email:userEmail,action:'login',table_name:'data_collection_store',details:{role:userRole,app:'field_logger'}
-    })}catch(e){}
+    })}catch(e){console.warn('Audit log failed:',e)}
     // Save to localStorage for session persistence
     localStorage.setItem('fl-session',JSON.stringify({email:userEmail,role:userRole,name:name}));
     onLoggedIn();
@@ -305,6 +313,7 @@ function openList(lid){currentListId=lid;selectedTypeId=null;editingEntryId=null
 // ══════════ HELPERS ══════════
 function getFolder(fid){return APP.folders.find(f=>f.id===(fid||currentFolderId))}
 function getList(lid){const folder=getFolder();return folder?.lists?.find(l=>l.id===(lid||currentListId))}
+function getEffectiveTypes(list){const folder=getFolder();return(folder?.types?.length)?folder.types:(list?.types||[])}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 function esc(s){return s?s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'):''}
 
@@ -322,21 +331,33 @@ function renderFolders(){
 function renderLists(){
   const folder=getFolder();if(!folder)return goToFolders();
   document.getElementById('listsTitle').textContent='📁 '+folder.name;
-  document.getElementById('listsSub').textContent=(folder.lists?.length||0)+' lists';
+  const ftypes=folder.types||[];
+  document.getElementById('listsSub').textContent=(folder.lists?.length||0)+' lists · '+ftypes.length+' types';
+  // Show folder types bar
+  const ftBar=document.getElementById('folderTypesBar'),ftChips=document.getElementById('folderTypeChips');
+  if(ftypes.length){
+    ftBar.style.display='block';
+    ftChips.innerHTML=ftypes.map(t=>{
+      const bd=t.color==='#e5e7eb'?'border:1px solid #666;':'';
+      return`<div class="chip" style="color:${t.textColor||t.color}"><span class="chip-dot" style="background:${t.color};${bd}"></span>${esc(t.label)}${t.partNo?' <span style="font-size:9px;color:var(--text2)">'+esc(t.partNo)+'</span>':''}</div>`
+    }).join('');
+  }else{ftBar.style.display='none'}
   const g=document.getElementById('listsGrid');
-  if(!folder.lists?.length){g.innerHTML='<div class="empty">No lists yet.<br>Tap ＋ to create a data collection list.</div>';return}
+  if(!folder.lists?.length){g.innerHTML='<div class="empty">No lists yet.<br>'+(ftypes.length?'Tap ＋ to create a data collection list.':'Tap ⚙ to add hose types first, then create lists.')+'</div>';return}
   g.innerHTML=folder.lists.map(l=>{
-    const dots=(l.types||[]).map(t=>`<div class="type-preview-dot" style="background:${t.color};${t.color==='#e5e7eb'?'border:1px solid #666':''}"></div>`).join('');
-    return`<div class="card list-card" onclick="openList('${l.id}')" style="border-left-color:${l.types?.[0]?.color||'var(--accent)'}"><div class="list-name">${esc(l.name)}</div><div class="list-meta">${l.entries?.length||0} entries · ${l.types?.length||0} types</div><div class="type-preview">${dots}</div></div>`
+    const types=ftypes.length?ftypes:(l.types||[]);
+    const dots=types.map(t=>`<div class="type-preview-dot" style="background:${t.color};${t.color==='#e5e7eb'?'border:1px solid #666':''}"></div>`).join('');
+    return`<div class="card list-card" onclick="openList('${l.id}')" style="border-left-color:${types[0]?.color||'var(--accent)'}"><div class="list-name">${esc(l.name)}</div><div class="list-meta">${l.entries?.length||0} entries · ${types.length} types</div><div class="type-preview">${dots}</div></div>`
   }).join('');
 }
 
 // ══════════ RENDER ENTRIES ══════════
 function renderEntries(){
   const list=getList();if(!list)return goToLists();
+  const folder=getFolder();
   document.getElementById('entriesTitle').textContent=list.name;
   document.getElementById('entriesSub').textContent=(list.entries?.length||0)+' entries';
-  const types=list.types||[];
+  const types=(folder?.types?.length)?folder.types:(list.types||[]);
   document.getElementById('typeChips').innerHTML=types.map(t=>{
     const a=selectedTypeId===t.id,bd=t.color==='#e5e7eb'?'border:1px solid #666;':'';
     return`<div class="chip ${a?'active':''}" onclick="selectType('${t.id}')" style="color:${t.textColor||t.color}"><span class="chip-dot" style="background:${t.color};${bd}"></span>${esc(t.label)}</div>`
@@ -412,9 +433,10 @@ function pickItem(idx){
 function renderSummary(list){
   const bar=document.getElementById('summaryBar'),entries=list.entries||[];
   if(!entries.length){bar.innerHTML='';return}
+  const types=getEffectiveTypes(list);
   const lf=(list.fields||[]).find(f=>f.type==='number'&&f.key!=='qty'),qf=(list.fields||[]).find(f=>f.key==='qty');
   let h=`<div class="chip ${!selectedTypeId?'active':''}" onclick="selectedTypeId=null;renderEntries();" style="color:#ccc;">ALL (${entries.length})</div>`;
-  (list.types||[]).forEach(t=>{
+  (types).forEach(t=>{
     const te=entries.filter(e=>e.typeId===t.id);if(!te.length)return;
     let tot=0;if(lf&&qf)tot=te.reduce((s,e)=>s+(parseFloat(e.data?.[lf.key])||0)*(parseInt(e.data?.[qf.key])||1),0);
     const bd=t.color==='#e5e7eb'?'border:1px solid #666;':'';
@@ -427,7 +449,7 @@ function renderEntriesList(list){
   let entries=(list.entries||[]).slice();
   if(selectedTypeId)entries=entries.filter(e=>e.typeId===selectedTypeId);
   if(!entries.length){c.innerHTML='<div class="empty">No entries yet. Select a type and start logging.</div>';return}
-  const fields=list.fields||defaultFields(),types=list.types||[];
+  const fields=list.fields||defaultFields(),types=getEffectiveTypes(list);
   const lf=fields.find(f=>f.type==='number'&&f.key!=='qty'),qf=fields.find(f=>f.key==='qty');
   c.innerHTML=entries.slice().reverse().map((e,i)=>{
     const t=types.find(tp=>tp.id===e.typeId)||{label:'?',color:'#555'},d=e.data||{};
@@ -457,7 +479,7 @@ function deleteEntry(eid){const list=getList();if(!list)return;list.entries=(lis
 // ══════════ CSV EXPORT ══════════
 function exportListCSV(){
   const list=getList();if(!list)return;
-  const fields=list.fields||defaultFields(),types=list.types||[];
+  const fields=list.fields||defaultFields(),types=getEffectiveTypes(list);
   const hdr=['Type','Part No',...fields.map(f=>f.label),'Timestamp'];
   const rows=(list.entries||[]).map(e=>{const t=types.find(tp=>tp.id===e.typeId)||{label:'',partNo:''};return[t.label,t.partNo||'',...fields.map(f=>e.data?.[f.key]||''),e.ts||'']});
   let csv=hdr.map(h=>`"${h}"`).join(',')+'\n';csv+=rows.map(r=>r.map(v=>`"${v}"`).join(',')).join('\n');
@@ -481,21 +503,29 @@ function deleteFolder(){APP.folders=APP.folders.filter(f=>f.id!==currentFolderId
 const PRESET_COLORS=['#ef4444','#f97316','#f59e0b','#22c55e','#14b8a6','#3b82f6','#8b5cf6','#ec4899','#dc2626','#ea580c','#d97706','#16a34a','#0d9488','#2563eb','#7c3aed','#db2777','#e5e7eb','#1f2937','#78716c','#a3a3a3','#fbbf24','#34d399','#60a5fa','#c084fc'];
 let newListTypes=[],newListFields=[],newListItems=[],pickedColor='#ef4444';
 
-function showNewListModal(){newListTypes=[];newListFields=[...defaultFields()];newListItems=[];renderListModal('new')}
-function showEditListModal(){const l=getList();if(!l)return;newListTypes=JSON.parse(JSON.stringify(l.types||[]));newListFields=JSON.parse(JSON.stringify(l.fields||defaultFields()));newListItems=[...(l.preloadedItems||[])];renderListModal('edit')}
+function showNewListModal(){
+  const folder=getFolder();
+  // If folder has types, use them; otherwise let user define per-list
+  newListTypes=folder?.types?.length?JSON.parse(JSON.stringify(folder.types)):[];
+  newListFields=[...defaultFields()];newListItems=[];renderListModal('new');
+}
+function showEditListModal(){const l=getList();if(!l)return;const folder=getFolder();
+  newListTypes=folder?.types?.length?JSON.parse(JSON.stringify(folder.types)):JSON.parse(JSON.stringify(l.types||[]));
+  newListFields=JSON.parse(JSON.stringify(l.fields||defaultFields()));newListItems=[...(l.preloadedItems||[])];renderListModal('edit')}
 
 function renderListModal(mode){
   const list=mode==='edit'?getList():null,nv=list?esc(list.name):'',nid=mode==='edit'?'editListName':'newListName';
-  const th=newListTypes.map((t,i)=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span class="chip-dot" style="background:${t.color};${t.color==='#e5e7eb'?'border:1px solid #666':''}"></span><span style="flex:1;font-size:13px;font-weight:600;">${esc(t.label)}</span><span style="font-size:10px;color:var(--text2)">${esc(t.partNo||'')}</span><button class="icon-btn" style="width:28px;height:28px;font-size:12px;color:var(--danger)" onclick="newListTypes.splice(${i},1);renderListModal('${mode}')">✕</button></div>`).join('');
-  const fh=newListFields.map((f,i)=>`<div class="field-config-item"><input class="field-input" value="${esc(f.label)}" onchange="newListFields[${i}].label=this.value" style="font-size:12px;padding:6px;"><select class="field-input" onchange="newListFields[${i}].type=this.value" style="font-size:11px;padding:6px;"><option value="text" ${f.type==='text'?'selected':''}>Text</option><option value="number" ${f.type==='number'?'selected':''}>Number</option></select><button class="icon-btn" style="width:28px;height:28px;font-size:12px;color:var(--danger)" onclick="newListFields.splice(${i},1);renderListModal('${mode}')">✕</button></div>`).join('');
-  // Preloaded items
-  const ih=newListItems.map((it,i)=>`<span class="preload-tag">${esc(it)}<button onclick="newListItems.splice(${i},1);renderListModal('${mode}')">✕</button></span>`).join('');
-
-  const ab=mode==='edit'?`<button class="btn btn-accent btn-full" style="margin-top:16px;" onclick="saveListEdits()">Save Changes</button><button class="btn btn-danger btn-full" style="margin-top:8px;" onclick="confirmDeleteList()">Delete List</button>`:`<button class="btn btn-accent btn-full" style="margin-top:16px;" onclick="createList()">Create List</button>`;
-  showModal(`<div class="modal-title">${mode==='edit'?'Edit':'New'} List</div>
-<div class="field"><label class="field-label">List Name</label><input class="field-input" id="${nid}" value="${nv}" placeholder="e.g. Hose Routing"></div>
-
-<label class="field-label" style="margin-top:12px;">Item Types</label>
+  const folder=getFolder();
+  const hasFolderTypes=folder?.types?.length>0;
+  
+  let typesSection='';
+  if(hasFolderTypes){
+    // Show folder types as read-only
+    const th=newListTypes.map(t=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span class="chip-dot" style="background:${t.color};${t.color==='#e5e7eb'?'border:1px solid #666':''}"></span><span style="flex:1;font-size:13px;font-weight:600;">${esc(t.label)}</span><span style="font-size:10px;color:var(--text2)">${esc(t.partNo||'')}</span></div>`).join('');
+    typesSection=`<label class="field-label" style="margin-top:12px;">Item Types <span style="color:var(--accent);text-transform:none;">(from folder)</span></label><div>${th}</div><p style="font-size:10px;color:var(--text2);margin-top:4px;">Manage types in folder ⚙ settings.</p>`;
+  }else{
+    const th=newListTypes.map((t,i)=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span class="chip-dot" style="background:${t.color};${t.color==='#e5e7eb'?'border:1px solid #666':''}"></span><span style="flex:1;font-size:13px;font-weight:600;">${esc(t.label)}</span><span style="font-size:10px;color:var(--text2)">${esc(t.partNo||'')}</span><button class="icon-btn" style="width:28px;height:28px;font-size:12px;color:var(--danger)" onclick="newListTypes.splice(${i},1);renderListModal('${mode}')">✕</button></div>`).join('');
+    typesSection=`<label class="field-label" style="margin-top:12px;">Item Types</label>
 <div>${th}</div>
 <div style="margin-top:8px;">
   <div class="add-type-row">
@@ -504,7 +534,17 @@ function renderListModal(mode){
   </div>
   <div class="color-grid" style="margin-top:8px;">${PRESET_COLORS.map(c=>`<div class="color-swatch" style="background:${c};${c==='#e5e7eb'?'border:1px solid #666':''}" onclick="pickColorFn(this,'${c}')"></div>`).join('')}</div>
   <button class="btn btn-ghost btn-sm" style="margin-top:6px;width:100%;" onclick="addTypeToList('${mode}')">+ Add Type</button>
-</div>
+</div>`;
+  }
+
+  const fh=newListFields.map((f,i)=>`<div class="field-config-item"><input class="field-input" value="${esc(f.label)}" onchange="newListFields[${i}].label=this.value" style="font-size:12px;padding:6px;"><select class="field-input" onchange="newListFields[${i}].type=this.value" style="font-size:11px;padding:6px;"><option value="text" ${f.type==='text'?'selected':''}>Text</option><option value="number" ${f.type==='number'?'selected':''}>Number</option></select><button class="icon-btn" style="width:28px;height:28px;font-size:12px;color:var(--danger)" onclick="newListFields.splice(${i},1);renderListModal('${mode}')">✕</button></div>`).join('');
+  const ih=newListItems.map((it,i)=>`<span class="preload-tag">${esc(it)}<button onclick="newListItems.splice(${i},1);renderListModal('${mode}')">✕</button></span>`).join('');
+
+  const ab=mode==='edit'?`<button class="btn btn-accent btn-full" style="margin-top:16px;" onclick="saveListEdits()">Save Changes</button><button class="btn btn-danger btn-full" style="margin-top:8px;" onclick="confirmDeleteList()">Delete List</button>`:`<button class="btn btn-accent btn-full" style="margin-top:16px;" onclick="createList()">Create List</button>`;
+  showModal(`<div class="modal-title">${mode==='edit'?'Edit':'New'} List</div>
+<div class="field"><label class="field-label">List Name</label><input class="field-input" id="${nid}" value="${nv}" placeholder="e.g. Hose Routing"></div>
+
+${typesSection}
 
 <label class="field-label" style="margin-top:16px;">Preloaded Items <span style="color:#666;text-transform:none;">(tap to fill From/To)</span></label>
 <div style="margin-bottom:6px;">${ih||'<span style="font-size:11px;color:#555;">None yet</span>'}</div>
@@ -525,8 +565,15 @@ function pickColorFn(el,c){pickedColor=c;document.querySelectorAll('.color-swatc
 function addTypeToList(mode){const n=document.getElementById('newTypeName')?.value.trim();if(!n)return;const p=document.getElementById('newTypePartNo')?.value.trim();const tc=['#e5e7eb','#fbbf24','#f59e0b','#a3a3a3'].includes(pickedColor)?'#333':pickedColor;newListTypes.push({id:uid(),label:n,color:pickedColor,textColor:tc,partNo:p});renderListModal(mode)}
 function addFieldToList(mode){newListFields.push({key:'f'+uid(),label:'New Field',type:'text',placeholder:''});renderListModal(mode)}
 
-function createList(){const n=document.getElementById('newListName')?.value.trim();if(!n)return;const folder=getFolder();if(!folder)return;newListFields.forEach((f,i)=>{if(!f.key)f.key='f'+i});if(!folder.lists)folder.lists=[];folder.lists.push({id:uid(),name:n,types:newListTypes,fields:newListFields,entries:[]});saveToSupabase();closeModal();renderLists()}
-function saveListEdits(){const list=getList();if(!list)return;const n=document.getElementById('editListName')?.value.trim();if(n)list.name=n;newListFields.forEach((f,i)=>{if(!f.key)f.key='f'+i});list.types=newListTypes;list.fields=newListFields;saveToSupabase();closeModal();renderEntries()}
+function createList(){const n=document.getElementById('newListName')?.value.trim();if(!n)return;const folder=getFolder();if(!folder)return;newListFields.forEach((f,i)=>{if(!f.key)f.key='f'+i});if(!folder.lists)folder.lists=[];
+  const hasFolderTypes=folder.types?.length>0;
+  folder.lists.push({id:uid(),name:n,types:hasFolderTypes?[]:newListTypes,fields:newListFields,preloadedItems:newListItems,entries:[]});saveToSupabase();closeModal();renderLists()}
+function saveListEdits(){const list=getList();if(!list)return;const folder=getFolder();const n=document.getElementById('editListName')?.value.trim();if(n)list.name=n;newListFields.forEach((f,i)=>{if(!f.key)f.key='f'+i});
+  if(!folder?.types?.length)list.types=newListTypes;
+  list.fields=newListFields;list.preloadedItems=newListItems;saveToSupabase();closeModal();renderEntries()}
+
+function addPreloadedItem(mode){const el=document.getElementById('newItemName');const v=el?.value.trim();if(!v)return;newListItems.push(v);renderListModal(mode)}
+function openCamForItem(mode){ocrMode='item';ocrListMode=mode;document.getElementById('camInput').click()}
 function confirmDeleteList(){const l=getList();showModal(`<div class="modal-title">Delete List?</div><p style="color:var(--text2);margin-bottom:16px;">Delete "${esc(l?.name)}" and all ${l?.entries?.length||0} entries.</p><button class="btn btn-danger btn-full" onclick="deleteList()">Delete Forever</button><button class="btn btn-ghost btn-full" style="margin-top:8px;" onclick="closeModal()">Cancel</button>`)}
 function deleteList(){const f=getFolder();if(!f)return;f.lists=(f.lists||[]).filter(l=>l.id!==currentListId);saveToSupabase();closeModal();goToLists()}
 
@@ -550,7 +597,7 @@ document.getElementById('camInput').addEventListener('change',async function(e){
   e.target.value=''; // reset so same file can re-trigger
 
   // Show status
-  let statusEl=document.getElementById(ocrMode==='type'?'ocrStatusModal':'ocrStatusEntry');
+  let statusEl=document.getElementById(ocrMode==='type'||ocrMode==='item'?'ocrStatusModal':'ocrStatusEntry');
   if(statusEl){statusEl.textContent='📷 Reading text...';statusEl.className='ocr-status show'}
 
   try{
@@ -567,10 +614,14 @@ document.getElementById('camInput').addEventListener('change',async function(e){
     const bestLine=lines[0]||text;
 
     if(ocrMode==='type'){
-      const el=document.getElementById('newTypeName');
+      const el=document.getElementById('newTypeName')||document.getElementById('folderTypeName');
       if(el)el.value=bestLine;
       // Also try to get part number from second line
-      if(lines.length>1){const pel=document.getElementById('newTypePartNo');if(pel&&!pel.value)pel.value=lines[1]}
+      if(lines.length>1){const pel=document.getElementById('newTypePartNo')||document.getElementById('folderTypePartNo');if(pel&&!pel.value)pel.value=lines[1]}
+      if(statusEl){statusEl.textContent='✅ Got: '+bestLine;statusEl.className='ocr-status show'}
+    }else if(ocrMode==='item'){
+      const el=document.getElementById('newItemName');
+      if(el)el.value=bestLine;
       if(statusEl){statusEl.textContent='✅ Got: '+bestLine;statusEl.className='ocr-status show'}
     }else if(ocrMode==='field'){
       const el=document.getElementById(ocrTargetField);
@@ -584,6 +635,122 @@ document.getElementById('camInput').addEventListener('change',async function(e){
     if(statusEl){statusEl.textContent='OCR failed: '+err.message;statusEl.className='ocr-status show err'}
   }
 });
+
+// ══════════ FOLDER-LEVEL TYPES ══════════
+let folderNewTypes=[],folderPickedColor='#ef4444';
+
+function showFolderTypesModal(){
+  const folder=getFolder();if(!folder)return;
+  if(!folder.types)folder.types=[];
+  folderNewTypes=JSON.parse(JSON.stringify(folder.types));
+  folderPickedColor='#ef4444';
+  renderFolderTypesModal();
+}
+
+function renderFolderTypesModal(){
+  const th=folderNewTypes.map((t,i)=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span class="chip-dot" style="background:${t.color};${t.color==='#e5e7eb'?'border:1px solid #666':''}"></span><span style="flex:1;font-size:13px;font-weight:600;">${esc(t.label)}</span><span style="font-size:10px;color:var(--text2)">${esc(t.partNo||'')}</span><button class="icon-btn" style="width:28px;height:28px;font-size:12px;color:var(--danger)" onclick="folderNewTypes.splice(${i},1);renderFolderTypesModal()">✕</button></div>`).join('');
+  showModal(`<div class="modal-title">Folder Types (Hose/Pipe)</div>
+<p style="font-size:11px;color:var(--text2);margin-bottom:12px;">Define types here — all lists in this folder will use them.</p>
+<div>${th||'<span style="font-size:11px;color:#555;">No types yet. Add below.</span>'}</div>
+<div style="margin-top:12px;">
+  <div class="add-type-row">
+    <input class="field-input" id="folderTypeName" placeholder="Type name (e.g. TU0604)" style="font-size:12px;padding:8px;">
+    <input class="field-input" id="folderTypePartNo" placeholder="Part #" style="font-size:12px;padding:8px;width:80px;">
+  </div>
+  <div class="color-grid" style="margin-top:8px;">${PRESET_COLORS.map(c=>`<div class="color-swatch" style="background:${c};${c==='#e5e7eb'?'border:1px solid #666':''}" onclick="folderPickColor(this,'${c}')"></div>`).join('')}</div>
+  <button class="btn btn-ghost btn-sm" style="margin-top:6px;width:100%;" onclick="addFolderType()">+ Add Type</button>
+</div>
+<button class="btn btn-accent btn-full" style="margin-top:16px;" onclick="saveFolderTypes()">Save Types</button>`);
+  setTimeout(()=>document.getElementById('folderTypeName')?.focus(),300);
+}
+
+function folderPickColor(el,c){folderPickedColor=c;document.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('active'));el.classList.add('active')}
+
+function addFolderType(){
+  const n=document.getElementById('folderTypeName')?.value.trim();if(!n)return;
+  const p=document.getElementById('folderTypePartNo')?.value.trim();
+  const tc=['#e5e7eb','#fbbf24','#f59e0b','#a3a3a3'].includes(folderPickedColor)?'#333':folderPickedColor;
+  folderNewTypes.push({id:uid(),label:n,color:folderPickedColor,textColor:tc,partNo:p});
+  renderFolderTypesModal();
+}
+
+function saveFolderTypes(){
+  const folder=getFolder();if(!folder)return;
+  folder.types=folderNewTypes;
+  saveToSupabase();closeModal();renderLists();
+}
+
+// ══════════ FOLDER SUMMARY (grouped by type) ══════════
+function showFolderSummary(){
+  const folder=getFolder();if(!folder)return;
+  const types=folder.types||[];
+  const allEntries=[];
+  (folder.lists||[]).forEach(l=>{
+    const lt=types.length?types:(l.types||[]);
+    (l.entries||[]).forEach(e=>{
+      const t=lt.find(tp=>tp.id===e.typeId);
+      allEntries.push({...e,typeName:t?.label||'?',typeColor:t?.color||'#555',typePartNo:t?.partNo||'',listName:l.name});
+    });
+  });
+
+  if(!allEntries.length){showModal(`<div class="modal-title">📊 Folder Summary</div><p style="color:var(--text2);">No entries across any list yet.</p><button class="btn btn-ghost btn-full" style="margin-top:12px;" onclick="closeModal()">Close</button>`);return}
+
+  // Group by type
+  const grouped={};
+  allEntries.forEach(e=>{
+    if(!grouped[e.typeName])grouped[e.typeName]={color:e.typeColor,partNo:e.typePartNo,entries:[]};
+    grouped[e.typeName].entries.push(e);
+  });
+
+  let h=`<div class="modal-title">📊 Cut List — Grouped by Type</div>`;
+  h+=`<p style="font-size:11px;color:var(--text2);margin-bottom:12px;">All entries across ${folder.lists?.length||0} lists.</p>`;
+  h+=`<button class="btn btn-sm btn-ghost" style="margin-bottom:12px;" onclick="exportFolderSummaryCSV()">CSV ↓ Export</button>`;
+  h+=`<table class="summary-table">`;
+
+  let grandTotal=0;
+  Object.keys(grouped).forEach(typeName=>{
+    const g=grouped[typeName];
+    let typeTotal=0;
+    h+=`<tr><td class="type-header" colspan="4" style="color:${g.color}"><span class="chip-dot" style="background:${g.color};margin-right:6px;"></span>${esc(typeName)}${g.partNo?' ('+esc(g.partNo)+')':''} — ${g.entries.length} entries</td></tr>`;
+    h+=`<tr><th>#</th><th>From</th><th>To</th><th>Length</th></tr>`;
+    g.entries.forEach((e,i)=>{
+      const d=e.data||{};
+      const len=parseFloat(d.length||d['Length (mm)']||0);
+      const qty=parseInt(d.qty||1);
+      const total=len*qty;
+      typeTotal+=total;
+      h+=`<tr><td>${i+1}</td><td>${esc(d.from||'')}</td><td>${esc(d.to||'')}</td><td>${total}mm${qty>1?' ('+len+'×'+qty+')':''}</td></tr>`;
+    });
+    grandTotal+=typeTotal;
+    h+=`<tr class="total-row"><td colspan="3" style="text-align:right;">Subtotal:</td><td>${typeTotal}mm (${(typeTotal/1000).toFixed(2)}m)</td></tr>`;
+  });
+
+  h+=`<tr class="total-row" style="font-size:14px;"><td colspan="3" style="text-align:right;">GRAND TOTAL:</td><td>${grandTotal}mm (${(grandTotal/1000).toFixed(2)}m)</td></tr>`;
+  h+=`</table>`;
+  h+=`<button class="btn btn-ghost btn-full" style="margin-top:16px;" onclick="closeModal()">Close</button>`;
+  showModal(h);
+}
+
+function exportFolderSummaryCSV(){
+  const folder=getFolder();if(!folder)return;
+  const types=folder.types||[];
+  const rows=[['Type','Part No','From','To','Length (mm)','Qty','Total (mm)','List']];
+  (folder.lists||[]).forEach(l=>{
+    const lt=types.length?types:(l.types||[]);
+    (l.entries||[]).forEach(e=>{
+      const t=lt.find(tp=>tp.id===e.typeId);
+      const d=e.data||{};
+      const len=parseFloat(d.length||d['Length (mm)']||0);
+      const qty=parseInt(d.qty||1);
+      rows.push([t?.label||'?',t?.partNo||'',d.from||'',d.to||'',len,qty,len*qty,l.name]);
+    });
+  });
+  // Sort by type
+  const hdr=rows.shift();rows.sort((a,b)=>a[0].localeCompare(b[0]));rows.unshift(hdr);
+  let csv=rows.map(r=>r.map(v=>`"${v}"`).join(',')).join('\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download=`${folder.name.replace(/\s+/g,'_')}_cut_list_${new Date().toISOString().slice(0,10)}.csv`;a.click();
+}
 
 // ══════════ INIT ══════════
 checkAuth();
