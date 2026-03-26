@@ -218,10 +218,10 @@ async function verifyAndLogin(email,name){
       userEmail=data.email;
       userRole=data.role;
     }
-    // Log the login
-    await sb.from('authentication_mode_audit_log').insert({
+    // Log the login (ignore errors)
+    try{await sb.from('authentication_mode_audit_log').insert({
       user_email:userEmail,action:'login',table_name:'data_collection_store',details:{role:userRole,app:'field_logger'}
-    }).catch(()=>{});
+    })}catch(e){}
     // Save to localStorage for session persistence
     localStorage.setItem('fl-session',JSON.stringify({email:userEmail,role:userRole,name:name}));
     onLoggedIn();
